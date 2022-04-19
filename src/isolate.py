@@ -100,22 +100,50 @@ def isolate_hands(image):
             min_length = crop.shape[0]
             hour_hand_index = i
 
-    hour = None
-    minute = None
-    second = None
-    for i, crop in enumerate(transparent_crops):
-        if i == hour_hand_index:
-            hour = crop
-        else:
-            if minute is not None:
-                second = crop
+    minute_hand_index = None
+    second_hand_index = None
+    for i, _ in enumerate(transparent_crops):
+        if i != hour_hand_index:
+            if minute_hand_index is not None:
+                second_hand_index = i
             else:
-                minute = crop
+                minute_hand_index = i
+
+    canvases = []
+    for cropped_image, transparent_crop in zip(cropped_images, transparent_crops):
+        img = cropped_image.copy()
+        cimg = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        circles = cv2.HoughCircles(
+            cimg, cv2.HOUGH_GRADIENT, 0.05, 20, param1=20, param2=60, minRadius=2
+        )
+        if circles is not None:
+            circles = np.round(circles[0, :]).astype("int")
+            if len(circles) > 1:
+                circles = circles[1:]
+        else:
+            return {
+                "hour": None,
+                "minute": None,
+                "second": None,
+            }
+
+        canvas_size = 1000
+        canvas = np.full([canvas_size, canvas_size, 4], 0, dtype=np.int32)
+
+        y1 = canvas_size // 2 - circles[0][1]
+        y2 = canvas_size // 2 + cropped_image.shape[0] - circles[0][1]
+
+        x1 = canvas_size // 2 - cropped_image.shape[1] + circles[0][0]
+        x2 = canvas_size // 2 + circles[0][0]
+
+        canvas[y1:y2, x1:x2, :] = transparent_crop
+        canvases.append(canvas)
+
 
     return {
-        "hour": hour,
-        "minute": minute,
-        "second": second,
+        "hour": canvases[hour_hand_index],
+        "minute": canvases[minute_hand_index],
+        "second": canvases[second_hand_index],
     }
 
 
@@ -131,10 +159,11 @@ def main():
         image = cv2.imread(image_path)
         image_name = os.path.splitext(os.path.basename(image_path))[0]
         for hand_name, hand_image in isolate_hands(image).items():
-            cv2.imwrite(
-                os.path.join(args.output_dir, f"{image_name}_{hand_name}.png"),
-                hand_image,
-            )
+            if hand_image is not None:
+                cv2.imwrite(
+                    os.path.join(args.output_dir, f"{image_name}_{hand_name}.png"),
+                    hand_image,
+                )
 
 
 if __name__ == "__main__":
